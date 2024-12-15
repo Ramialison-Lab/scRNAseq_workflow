@@ -6,7 +6,7 @@ editor_options:
 
 ```{r}
 # -----------------------------------------------------------------------------
-# Script Name: scRNA_seq_analysis
+# Script Name: scRNA_seq_analysis_for upload
 # Author: Svenja Pachernegg 
 # Uploaded by: Denis Bienroth
 # Date: 16-12-2024
