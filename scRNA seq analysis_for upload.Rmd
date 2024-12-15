@@ -1,0 +1,266 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+```{r}
+# Load required libraries for data analysis and visualization
+library(dplyr)
+library(Seurat)
+library(ggplot2)
+library(clustree)
+library(umap)
+```
+
+```{r}
+# Load the scRNAseq dataset - D21_organoids
+scRNAseq.data <- Read10X(data.dir="D21_organoids/filtered_feature_bc_matrix")
+
+```
+
+
+```{r}
+# Initialize the Seurat object with the raw data
+D21_organoids_seurat <- CreateSeuratObject(counts=scRNAseq.data)
+
+```
+
+```{r}
+# Display a summary of the Seurat object
+D21_organoids_seurat
+```
+
+```{r}
+# Calculate the percentage of mitochondrial gene expression and store it as metadata
+D21_organoids_seurat[["percent.mt"]] <- PercentageFeatureSet(D21_organoids_seurat, pattern = "^MT-")
+```
+
+```{r}
+# Calculate the percentage of ribosomal gene expression and store it as metadata
+percent.ribo <- c(grep("^RPL", rownames(D21_organoids_seurat), value=T), grep("^RPS", rownames(D21_organoids_seurat), value=T)) #all ribosomal genes
+D21_organoids_seurat <- PercentageFeatureSet(D21_organoids_seurat, features=percent.ribo, col.name="percent.ribo")
+```
+
+```{r}
+# Calculate the percentage of mitochondrial ribosomal gene expression and store it as metadata
+percent.mitoribo <- c(grep("^MRPL", rownames(D21_organoids_seurat), value=T), grep("^MRPS", rownames(D21_organoids_seurat), value=T)) #all mitochondrial ribosomal genes
+D21_organoids_seurat <- PercentageFeatureSet(D21_organoids_seurat, features=percent.mitoribo, col.name = "percent.mitoribo")
+```
+
+
+```{r}
+# Visualize the distribution of RNA features and counts
+VlnPlot (D21_organoids_seurat, features = c("nFeature_RNA", "nCount_RNA"), ncol=5, pt.size = 0.01) + NoLegend()
+```
+```{r}
+# Visualize the distribution of mitochondrial, ribosomal, and mitochondrial ribosomal percentages
+VlnPlot (D21_organoids_seurat, features = c("percent.mt", "percent.ribo", "percent.mitoribo"), ncol=5, pt.size = 0.01) + NoLegend()
+```
+
+
+```{r}
+# Scatter plot to assess the relationship between total RNA counts and detected features
+FeatureScatter (D21_organoids_seurat, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+```
+
+
+```{r}
+# Filter cells based on quality control metrics: gene count, RNA count, and mitochondrial expression
+D21_organoids_seurat <- subset(D21_organoids_seurat, subset = nFeature_RNA > 1500 & nFeature_RNA < 7000 & percent.mt < 10)
+```
+
+
+```{r}
+# Re-visualize QC metrics after filtering
+VlnPlot (D21_organoids_seurat, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol=3, pt.size = 0.01) + NoLegend()
+```
+
+
+```{r}
+# Scatter plot to confirm quality metrics
+FeatureScatter (D21_organoids_seurat, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+```
+
+```{r}
+# Normalize the data to correct for sequencing depth differences
+D21_organoids_seurat <- NormalizeData(D21_organoids_seurat, normalization.method = "LogNormalize", scale.factor = 10000)
+```
+
+```{r}
+# Perform cell cycle scoring using pre-defined S-phase and G2/M-phase gene sets
+s.genes <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#D21_organoids_seurat <- NormalizeData(D21_organoids_seurat)
+D21_organoids_seurat <- CellCycleScoring(D21_organoids_seurat, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+# Regress out unwanted sources of variation like mitochondrial content and cell cycle scores
+D21_organoids_seurat <- SCTransform(D21_organoids_seurat, vars.to.regress = c("percent.mt", "G2M.Score", "S.Score"), verbose = FALSE)
+```
+
+
+```{r}
+# Display the Seurat object summary after transformations
+D21_organoids_seurat
+```
+
+
+```{r}
+# Perform Principal Component Analysis (PCA) for dimensionality reduction
+D21_organoids_seurat <- RunPCA(D21_organoids_seurat, verbose = F)
+```
+
+
+```{r}
+# Elbow plot to visualise the variance explained by principal components
+ElbowPlot(D21_organoids_seurat)
+```
+
+
+```{r}
+# Visualize the first two principal components (change dimensions in the brackets to view different PCs)
+DimPlot(D21_organoids_seurat, reduction="pca", dims = c(1,2))
+```
+
+
+```{r}
+# Perform UMAP for further dimensionality reduction and visualisation
+D21_organoids_seurat <- RunUMAP(D21_organoids_seurat, dims=1:20, seed.use = 250395, n.components = 2)
+```
+
+```{r}
+# UMAP plot grouped by cell cycle phase
+DimPlot (D21_organoids_seurat, reduction="umap", group.by = "Phase", dims = c(1,2), label =T)
+```
+
+
+```{r}
+# Identify nearest neighbors and clusters using graph-based clustering
+D21_organoids_seurat <- FindNeighbors(D21_organoids_seurat, dims = 1:20, verbose = F)
+D21_organoids_seurat <- FindClusters(D21_organoids_seurat, resolution = seq(from = 0, to = 2, by = 0.1), verbose = F)
+```
+
+
+
+```{r}
+# Visualise clustering across resolutions using clustree
+clustree(D21_organoids_seurat, suffix="SCT_snn_res.")
+```
+
+
+
+```{r}
+# Visualise clusters at a specific resolution
+DimPlot(D21_organoids_seurat, group.by="SCT_snn_res.0.2", label=T)
+```
+
+
+
+```{r}
+# Set the clustering resolution to 0.2 and visualise clusters
+D21_organoids_seurat_02 <- SetIdent(D21_organoids_seurat, value="SCT_snn_res.0.2")
+DimPlot(D21_organoids_seurat_02, label = T)
+```
+
+
+```{r}
+# Set default assay back to RNA for downstream marker analysis
+DefaultAssay(D21_organoids_seurat_02) <- "RNA"
+```
+
+
+```{r}
+# Perform marker analysis to find differentially expressed genes across clusters
+markers_D21_organoids_seurat_02 <- FindAllMarkers (object=D21_organoids_seurat_02,
+                           logfc.threshold = 0.25, 
+                           min.pct = 0.1, 
+                           only.pos = T, 
+                           return.thresh = 0.05, 
+                           test.use = "t")
+```
+
+
+```{r}
+# Export the marker list to a CSV file
+write.csv(markers_D21_organoids_seurat_02, file="/Users/svenja.pachernegg/Library/CloudStorage/OneDrive-Personal/MCRI/RNA_seq/scRNA_seq/markers_D21_organoids_seurat_02.csv")
+```
+
+
+```{r}
+# Define gene sets for further analysis
+Bipotential <- c("GATA4", "LHX9", "FGF9", "NR5A1", "NR2F2", "PAX8", "TCF21", "WT1", "ZFPM2")
+Early_Sertoli <- c("BMPR1B", "COL2A1", "SIX4", "SOX9")
+Mature_Sertoli <- c("AMH", "DHH")
+Interstitial <- c("ACTA2", "CALD1", "DCN", "DES", "IGF1", "MYH11", "NR3C1", "PDGFRA", "VIM")
+Leydig <- c("CYP11A1", "CYP17A1", "STAR")
+```
+
+
+```{r}
+# Combine key genes into a single list
+Key_genes <- c(Bipotential, Early_Sertoli, Mature_Sertoli, Interstitial, Leydig)
+```
+
+
+```{r}
+# Define gene sets of interest based on biological processes or phenotypes
+GO_sex_differentiation <- c("BCL2", "CNTFR", "FGF9", "GATA3", "KDR", "NR2F2", "SFRP2", "STRA6", "TCF21", "TIPARP", "WT1")
+
+GO_regulation_repro_process <- c("BNC1", "FGF9", "IGF1", "MSX1", "P2RY1", "PLAT", "PTGDS", "WT1")
+
+GO_cholesterol_biosynthesis <- c("DHCR7", "DHCR24", "HMGCR", "HMGCS1", "INSIG1", "LSS", "MSMO1", "MVD", "MVK", "SREBF1")
+
+GO_muscle_dev <- c("ACTA2", "ADAMTS16", "BMP2", "BMP6", "EPHA7", "FBN1", "GDF6", "GREM1", "JAG1", "NPNT", "PCSK9")
+
+GO_reproductive_system_dev <- c("BMPR1B", "FOXC1", "GAS2", "GLI1", "IRX5", "RARG", "RBP4", "SIX4", "SOX9", "TBX3")
+
+Panel_app_DSD <- c("ANOS1", "ARHGAP35", "ATRX", "CDKN1C", "CPE", "CUL4B", "CYB5A", "DHCR7", "DLK1", "FGFR1", "FGFR2", "HSD17B4", "IGF2", "MAP3K1", "MYRF", "NR2F2", "NR3C1", "PBX1", "POR", "PPP2R3C", "RNF216", "RPL10", "SEMA3A","SGPL1", "SOX11", "SOX9", "TAC3", "TSPYL1", "WDR11", "WT1")
+
+```
+
+
+```{r}
+# Visualise key gene sets using DotPlot
+DotPlot(object = D21_organoids_seurat_02, 
+        features = GO_reproductive_system_dev, 
+        cols = c("blue", "red"), dot.scale=4) +
+  theme(
+    element_text(family = "Arial"),
+    aspect.ratio = 0.7,
+    axis.text.x = element_text(angle=90, size=10, face="italic", hjust = 1,
+                               vjust = 0.5),
+    axis.text.y = element_text(size = 10),
+    axis.title.x = element_text(size = 12, face="bold"),
+    axis.title.y = element_text(size = 12, face="bold")
+    ) +
+    xlab('Gene')+
+    ylab('Cluster')
+
+```
+
+```{r}
+# Generate a dot plot to visualize the expression levels of genes in the specified panel
+DotPlot(object = D21_organoids_seurat_02, features = rev(Panel_app_DSD_short), cols = c("blue", "red"), dot.scale = 3) +
+  
+  theme(
+    element_text(family = "Arial"),
+    aspect.ratio = 3,
+    axis.text.x = element_text(size=10),
+    axis.text.y = element_text(size = 10, face="italic"),
+    axis.title.x = element_text(size = 12, face="bold"),
+    axis.title.y = element_text(size = 12, face="bold")
+    ) +
+    xlab('Gene')+
+    ylab('Cluster')+
+    #RotatedAxis()+
+    coord_flip()
+
+```
+
+```{r}
+#Save Seurat object
+saveRDS(D21_organoids_seurat_02, file="D21_organoids_seurat.rds")
+```
+
